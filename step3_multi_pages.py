@@ -10,71 +10,71 @@ headers = {
     "Accept-Language": "en-US,en;q=0.8",
 }
 
-# Le lab dit "refrain from doing it dynamically"
-# = on liste les pages manuellement
-urls = [
-    "https://github.com/search?q=mental+health+ai&type=repositories&p=1",
-    "https://github.com/search?q=mental+health+ai&type=repositories&p=2",
-    "https://github.com/search?q=mental+health+ai&type=repositories&p=3",
-    "https://github.com/search?q=mental+health+ai&type=repositories&p=4",
-    "https://github.com/search?q=mental+health+ai&type=repositories&p=5",
-]
-
 all_data = []
+page = 1
+total_pages = None
 
-for page_url in urls:
-    print(f"\nScraping : {page_url}")
-    
-    response = requests.get(page_url, headers=headers)
-    print(f"Status : {response.status_code}")
-    
+while True:
+    url = f"https://github.com/search?q=mental+health+ai&type=repositories&p={page}"
+    print(f"Scraping page {page}...")
+
+    response = requests.get(url, headers=headers)
+
     if response.status_code != 200:
-        print("Erreur sur cette page, on passe à la suivante")
-        continue
-    
+        print(f"Erreur status {response.status_code}, on arrete")
+        break
+
     soup = BeautifulSoup(response.text, "html.parser")
     script_tag = soup.find("script", attrs={"data-target": "react-app.embeddedData"})
-    
+
     if not script_tag or not script_tag.string:
-        print("Pas de données JSON sur cette page")
-        continue
-    
+        print("Plus de donnees, on arrete")
+        break
+
     json_data = json.loads(script_tag.string)
-    
-    try:
-        results = json_data["payload"]["results"]
-        print(f"{len(results)} repos trouvés sur cette page")
-        
-        for repo in results:
-            title = re.sub(r'<[^>]+>', '', repo.get("hl_name", "N/A"))
-            description = re.sub(r'<[^>]+>', '', str(repo.get("hl_trunc_description", "N/A")))
-            stars = repo.get("followers", "N/A")
-            language = repo.get("language", "N/A")
-            updated = repo.get("repo", {}).get("repository", {}).get("updated_at", "N/A")
-            repo_name = repo.get("repo", {}).get("repository", {}).get("name", "N/A")
-            owner = repo.get("repo", {}).get("repository", {}).get("owner_login", "N/A")
-            link = f"https://github.com/{owner}/{repo_name}"
-            
-            all_data.append({
-                "title": title,
-                "url": link,
-                "description": description,
-                "stars": stars,
-                "language": language,
-                "last_updated": updated
-            })
-    
-    except KeyError as e:
-        print(f"Clé JSON non trouvée : {e}")
-    
-    # Attendre 2 secondes entre chaque page (respecter le serveur)
+    payload = json_data["payload"]
+    results = payload.get("results", [])
+
+    # Detecter automatiquement le nombre total de pages
+    if total_pages is None:
+        total_pages = payload.get("page_count", 1)
+        print(f"Nombre total de pages detecte : {total_pages}")
+
+    if not results:
+        print("Plus de resultats, on arrete")
+        break
+
+    print(f"{len(results)} repos trouves sur la page {page}")
+
+    for repo in results:
+        title = re.sub(r'<[^>]+>', '', repo.get("hl_name", "N/A"))
+        description = re.sub(r'<[^>]+>', '', str(repo.get("hl_trunc_description", "N/A")))
+        stars = repo.get("followers", "N/A")
+        language = repo.get("language", "N/A")
+        updated = repo.get("repo", {}).get("repository", {}).get("updated_at", "N/A")
+        repo_name = repo.get("repo", {}).get("repository", {}).get("name", "N/A")
+        owner = repo.get("repo", {}).get("repository", {}).get("owner_login", "N/A")
+        link = f"https://github.com/{owner}/{repo_name}"
+
+        all_data.append({
+            "title": title,
+            "url": link,
+            "description": description,
+            "stars": stars,
+            "language": language,
+            "last_updated": updated
+        })
+
+    if total_pages and page >= total_pages:
+        print(f"Derniere page atteinte ({total_pages}), on arrete")
+        break
+
+    page += 1
     print("Attente 2 secondes...")
     time.sleep(2)
 
-# Supprimer les doublons et sauvegarder
 df = pd.DataFrame(all_data)
 df = df.drop_duplicates(subset="title")
-print(f"\nTotal final : {len(df)} repos extraits")
-print(df[["title", "stars", "language"]])
-df.to_csv("github_repos_all.csv", index=False, encoding="utf-8")
-print("\nSauvegardé dans github_repos_all.csv")
+print(f"\nTotal : {len(df)} repos extraits sur {page} pages")
+df.to_csv("github_repos_dynamic.csv", index=False, encoding="utf-8")
+print("Sauvegarde dans github_repos_dynamic.csv")
